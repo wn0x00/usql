@@ -16,6 +16,7 @@ import (
 	"github.com/xo/usql/drivers"
 	"github.com/xo/usql/drivers/metadata"
 	"github.com/xo/usql/env"
+	"github.com/xo/usql/internal/managedpolicy"
 	"github.com/xo/usql/rline"
 	"github.com/xo/usql/stmt"
 	"github.com/xo/usql/text"
@@ -80,6 +81,9 @@ func Dump(w io.Writer, hidden bool) error {
 	n := 0
 	for i := range sections {
 		for _, desc := range descs[i] {
+			if !managedpolicy.MetaCommandAllowed(desc.Name, "") {
+				continue
+			}
 			if (!desc.Hidden && !desc.Deprecated) || hidden {
 				n = max(n, runewidth.StringWidth(desc.Name)+1+runewidth.StringWidth(desc.Params))
 			}
@@ -91,6 +95,9 @@ func Dump(w io.Writer, hidden bool) error {
 		}
 		fmt.Fprintln(w, s)
 		for _, desc := range descs[i] {
+			if !managedpolicy.MetaCommandAllowed(desc.Name, "") {
+				continue
+			}
 			if (!desc.Hidden && !desc.Deprecated) || hidden {
 				_, _ = fmt.Fprintf(w, "  \\%- *s  %s\n", n, desc.Name+" "+desc.Params, wrap(desc.Desc, 95, n+5))
 			}
@@ -104,6 +111,9 @@ func Decode(name string, params *stmt.Params) (func(Handler) (Option, error), er
 	f, ok := cmds[name]
 	if !ok || name == "" {
 		return nil, text.ErrUnknownCommand
+	}
+	if err := managedpolicy.CheckMetaCommand(name, params.Raw()); err != nil {
+		return nil, err
 	}
 	return func(h Handler) (Option, error) {
 		p := &Params{
@@ -130,6 +140,9 @@ type Params struct {
 
 // Next returns the next command parameter, using env.Untick.
 func (p *Params) Next(exec bool) (string, error) {
+	if managedpolicy.Enabled {
+		exec = false
+	}
 	v, _, err := p.Params.Next(env.Untick(
 		p.Handler.User(),
 		env.Vars(),
@@ -143,6 +156,9 @@ func (p *Params) Next(exec bool) (string, error) {
 
 // NextOK returns the next command parameter, using env.Untick.
 func (p *Params) NextOK(exec bool) (string, bool, error) {
+	if managedpolicy.Enabled {
+		exec = false
+	}
 	return p.Params.Next(env.Untick(
 		p.Handler.User(),
 		env.Vars(),
@@ -166,6 +182,9 @@ func (p *Params) NextOpt(exec bool) (string, bool, error) {
 
 // All gets all remaining command parameters using env.Untick.
 func (p *Params) All(exec bool) ([]string, error) {
+	if managedpolicy.Enabled {
+		exec = false
+	}
 	return p.Params.All(env.Untick(
 		p.Handler.User(),
 		env.Vars(),

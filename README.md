@@ -198,6 +198,26 @@ driver][databases].
 $ go install -tags 'avatica odbc' github.com/xo/usql@main
 ```
 
+### Managed Yingdao iPaaS build
+
+This fork also provides an iPaaS-only build for shared sandboxes. It automatically
+uses `ipass://default` when `USQL_IPASS_BASE_URL` is set and no DSN is supplied.
+It also accepts an explicit `ipass://ALIAS`, sends SQL only to the injected
+run-capability URL, and does not link direct database drivers:
+
+```powershell
+./scripts/build-managed.ps1
+$env:USQL_IPASS_BASE_URL = 'http://127.0.0.1:18766/v1/runs/<capability>/db'
+./bin/usql.exe -X -J -c 'select 1'
+```
+
+See [Managed Yingdao iPaaS edition](docs/ipass-managed.md) for the exact wire
+protocol, credential boundary, build artifacts, SHA256 Adapter pin, and
+security restrictions.
+
+The npm distribution is `@guanzhu.me/usql`, with platform-specific binaries
+and GitHub OIDC publishing. See [npm installation and release](docs/npm-release.md).
+
 For every build tag `<driver>`, there is also a `no_<driver>` build tag
 that will disable the driver:
 

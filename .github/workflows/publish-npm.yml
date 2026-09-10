@@ -1,0 +1,171 @@
+name: Build and publish managed iPaaS npm packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['npm-v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish verified packages using npm Trusted Publishing (OIDC)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-latest
+            target_os: linux
+            target_arch: amd64
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            target_os: linux
+            target_arch: arm64
+          - platform: darwin-x64
+            runner: macos-15-intel
+            target_os: darwin
+            target_arch: amd64
+          - platform: darwin-arm64
+            runner: macos-latest
+            target_os: darwin
+            target_arch: arm64
+          - platform: win32-x64
+            runner: windows-latest
+            target_os: windows
+            target_arch: amd64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Test npm packaging
+        run: node --test scripts/npm-release.test.mjs
+      - name: Test and build managed executable
+        shell: pwsh
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          $version = (Get-Content npm/package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_REF.StartsWith('refs/tags/npm-v') -and $env:RELEASE_REF -ne "refs/tags/npm-v$version") {
+            throw 'Release tag must match npm/package.json version'
+          }
+          ./scripts/build-managed.ps1 -TargetOS '${{ matrix.target_os }}' -TargetArch '${{ matrix.target_arch }}' -Version $version -OutputDirectory .release/binary
+      - name: Test database gateway protocol and SQLite integration
+        if: matrix.platform == 'linux-x64'
+        env:
+          CGO_ENABLED: '0'
+        run: go test -tags 'no_base moderncsqlite' ./internal/ipassgateway ./cmd/usql-gateway
+      - name: Upload binary and checksum
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.platform }}
+          path: .release/binary/*
+          if-no-files-found: error
+          retention-days: 14
+
+  prepare:
+    name: Verify npm packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: binary-*
+          path: .release/artifacts
+      - name: Prepare npm packages with checksum validation
+        run: node scripts/prepare-npm-release.mjs
+      - name: Pack and verify installed CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .release/tarballs .release/smoke
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-x64; do
+            npm pack "./.release/npm/$platform" --pack-destination .release/tarballs
+          done
+          npm pack ./.release/npm/root --pack-destination .release/tarballs
+          VERSION="$(node -p "require('./npm/package.json').version")"
+          ROOT_TARBALL="$PWD/.release/tarballs/guanzhu.me-usql-${VERSION}.tgz"
+          PLATFORM_TARBALL="$PWD/.release/tarballs/guanzhu.me-usql-linux-x64-${VERSION}.tgz"
+          npm install --prefix .release/smoke --ignore-scripts --no-audit --no-fund --no-package-lock "$PLATFORM_TARBALL" "$ROOT_TARBALL"
+          CLI=.release/smoke/node_modules/.bin/usql
+          "$CLI" --version | grep -F "$VERSION"
+          test "$("$CLI" --has-ipass-support)" = '1'
+          test "$("$CLI" --has-postgres-support)" = '0'
+      - name: Upload packed npm release
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-tarballs
+          path: .release/tarballs/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish npm packages using OIDC
+    if: github.repository == 'wn0x00/usql' && (startsWith(github.ref, 'refs/tags/npm-v') || (github.event_name == 'workflow_dispatch' && inputs.publish))
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm version with Trusted Publishing support
+        run: npm install --global npm@11
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-tarballs
+          path: .release/tarballs
+      - name: Publish verified platform packages, then root package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./npm/package.json').version")"
+          publish_package() {
+            PACKAGE="$1"
+            TARBALL="$2"
+            STATUS="$(curl --silent --show-error --output .release/registry-response.json --write-out '%{http_code}' "https://registry.npmjs.org/${PACKAGE}/${VERSION}")"
+            case "$STATUS" in
+              200) echo "Already published: ${PACKAGE}@${VERSION}" ;;
+              404) npm publish "$TARBALL" --access public --tag latest ;;
+              *) echo "Registry lookup failed (${STATUS}); refusing to publish blindly." >&2; exit 1 ;;
+            esac
+          }
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-x64; do
+            publish_package "@guanzhu.me/usql-${platform}" ".release/tarballs/guanzhu.me-usql-${platform}-${VERSION}.tgz"
+          done
+          publish_package '@guanzhu.me/usql' ".release/tarballs/guanzhu.me-usql-${VERSION}.tgz"
+      - name: Verify public registry installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./npm/package.json').version")"
+          npm install --prefix .release/registry-smoke --ignore-scripts --no-audit --no-fund --no-package-lock "@guanzhu.me/usql@${VERSION}"
+          .release/registry-smoke/node_modules/.bin/usql --version | grep -F "$VERSION"
+          test "$(.release/registry-smoke/node_modules/.bin/usql --has-ipass-support)" = '1'

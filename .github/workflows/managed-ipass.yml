@@ -1,0 +1,53 @@
+name: Managed iPaaS Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows amd64
+            runner: windows-latest
+            target_os: windows
+            artifact: usql-ipass-managed-windows-amd64
+            path: bin/usql*
+          - name: Linux amd64
+            runner: ubuntu-latest
+            target_os: linux
+            artifact: usql-ipass-managed-linux-amd64
+            path: bin/usql*
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Test and build managed executable
+        shell: pwsh
+        run: >-
+          ./scripts/build-managed.ps1
+          -TargetOS '${{ matrix.target_os }}'
+          -TargetArch amd64
+          -Version '0.0.0-ipass-managed.${{ github.run_number }}'
+
+      - name: Upload managed executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 14

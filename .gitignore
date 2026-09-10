@@ -1,6 +1,10 @@
 /usql
 /usql.exe
 /build/
+/bin/
+/.release/
+/node_modules/
+/*.tgz
 /coverage.out
 /*.sql
 /*.txt

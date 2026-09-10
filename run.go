@@ -19,6 +19,7 @@ import (
 	"github.com/xo/dburl"
 	"github.com/xo/usql/env"
 	"github.com/xo/usql/handler"
+	"github.com/xo/usql/internal/managedpolicy"
 	"github.com/xo/usql/rline"
 	"github.com/xo/usql/text"
 )
@@ -55,6 +56,16 @@ func New(cliargs []string) ContextExecutor {
 			return nil
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if managedpolicy.Enabled {
+				if cmd.Flags().Changed("config") {
+					return managedpolicy.FeatureDisabled("configuration files")
+				}
+				// The managed edition accepts explicit CLI flags only. It does not
+				// load shared user configuration or flag values from environment
+				// variables. The iPaaS driver reads its one dedicated BASE_URL
+				// variable directly.
+				return nil
+			}
 			commandUpper := text.CommandUpper()
 			configFile := strings.TrimSpace(os.Getenv(commandUpper + "_CONFIG"))
 			cmd.Flags().VisitAll(func(f *pflag.Flag) {
@@ -126,13 +137,17 @@ func New(cliargs []string) ContextExecutor {
 			}
 			// create charts chroot
 			var err error
-			if args.Charts, err = chartsFS(v); err != nil {
+			if managedpolicy.Enabled {
+				args.Charts = memfs.New()
+			} else if args.Charts, err = chartsFS(v); err != nil {
 				return err
 			}
 			// fmt.Fprintf(os.Stderr, "\n\n%v\n\n", args.Charts)
-			args.Connections = v.GetStringMap("connections")
-			args.Init = v.GetString("init")
-			args.ConfigFileUsed = v.ConfigFileUsed()
+			if !managedpolicy.Enabled {
+				args.Connections = v.GetStringMap("connections")
+				args.Init = v.GetString("init")
+				args.ConfigFileUsed = v.ConfigFileUsed()
+			}
 			return Run(cmd.Context(), args)
 		},
 	}
@@ -218,6 +233,16 @@ func New(cliargs []string) ContextExecutor {
 
 // Run runs the application.
 func Run(ctx context.Context, args *Args) error {
+	if managedpolicy.Enabled {
+		if err := validateManagedArgs(args); err != nil {
+			return err
+		}
+		args.NoInit = true
+		args.NoPassword = true
+		if args.DSN == "" && strings.TrimSpace(os.Getenv("USQL_IPASS_BASE_URL")) != "" {
+			args.DSN = "ipass://default"
+		}
+	}
 	// get user
 	u, err := user.Current()
 	if err != nil {
@@ -301,8 +326,18 @@ func Run(ctx context.Context, args *Args) error {
 			}
 		}
 	}
+	if managedpolicy.Enabled {
+		// Never invoke an external pager in a shared sandbox, regardless of
+		// inherited process environment or output format flags.
+		_, _ = env.Vars().SetPrint("pager", "off")
+		_ = env.Vars().Set("PAGER", "")
+	}
 	// create input/output
-	l, err := rline.New(interactive, cygwin, forceNonInteractive, args.Out, env.HistoryFile(u))
+	historyFile := env.HistoryFile(u)
+	if managedpolicy.Enabled {
+		historyFile = ""
+	}
+	l, err := rline.New(interactive, cygwin, forceNonInteractive, args.Out, historyFile)
 	if err != nil {
 		return err
 	}
@@ -355,6 +390,38 @@ func Run(ctx context.Context, args *Args) error {
 	// commit
 	if args.SingleTransaction {
 		return h.Commit()
+	}
+	return nil
+}
+
+func validateManagedArgs(args *Args) error {
+	for _, commandOrFile := range args.CommandOrFiles {
+		if !commandOrFile.Command {
+			return managedpolicy.FeatureDisabled("SQL input files")
+		}
+	}
+	if args.Out != "" {
+		return managedpolicy.FeatureDisabled("output files")
+	}
+	if args.ForcePassword {
+		return managedpolicy.FeatureDisabled("password prompts")
+	}
+	if args.SingleTransaction {
+		return managedpolicy.FeatureDisabled("cross-request transactions")
+	}
+	if len(args.Cvars) != 0 || len(args.Connections) != 0 {
+		return managedpolicy.FeatureDisabled("named connection configuration")
+	}
+	for _, value := range args.Vars {
+		if value != "QUIET=on" {
+			return managedpolicy.FeatureDisabled("application variable overrides")
+		}
+	}
+	for _, value := range args.Pvars {
+		name, _, _ := strings.Cut(value, "=")
+		if strings.EqualFold(strings.TrimSpace(name), "pager") {
+			return managedpolicy.FeatureDisabled("external pagers")
+		}
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ env:
 # cribbed from https://github.com/actions/runner/issues/691
 jobs:
   configure:
+    if: github.repository == 'xo/usql'
     name: Configure
     runs-on: ubuntu-latest
     outputs:
@@ -88,6 +89,7 @@ jobs:
           git -C $REPO_PATH push origin master
 
   bump-homebrew-formula:
+    if: github.repository == 'xo/usql'
     name: Bump Homebrew Formula
     runs-on: ubuntu-latest
     steps:
@@ -116,6 +118,7 @@ jobs:
           git -C $REPO_PATH push origin master
 
   announce-discord:
+    if: github.repository == 'xo/usql'
     name: Announce Discord
     runs-on: ubuntu-latest
     steps:

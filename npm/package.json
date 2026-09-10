@@ -1,0 +1,22 @@
+{
+  "name": "@guanzhu.me/usql",
+  "version": "0.19.12-ipass.1",
+  "private": true,
+  "description": "通过影刀 iPaaS 执行数据库查询的 usql 定制发行包",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "usql": "bin/usql.mjs" },
+  "files": ["bin/usql.mjs", "README.md", "LICENSE"],
+  "repository": { "type": "git", "url": "https://github.com/wn0x00/usql.git" },
+  "homepage": "https://github.com/wn0x00/usql#readme",
+  "bugs": { "url": "https://github.com/wn0x00/usql/issues" },
+  "publishConfig": { "access": "public" },
+  "optionalDependencies": {
+    "@guanzhu.me/usql-linux-x64": "0.19.12-ipass.1",
+    "@guanzhu.me/usql-linux-arm64": "0.19.12-ipass.1",
+    "@guanzhu.me/usql-darwin-x64": "0.19.12-ipass.1",
+    "@guanzhu.me/usql-darwin-arm64": "0.19.12-ipass.1",
+    "@guanzhu.me/usql-win32-x64": "0.19.12-ipass.1"
+  }
+}

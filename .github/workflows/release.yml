@@ -7,6 +7,7 @@ env:
 
 jobs:
   build_for_linux:
+    if: github.repository == 'xo/usql'
     name: Build for Linux
     runs-on: ubuntu-latest
     strategy:
@@ -50,6 +51,7 @@ jobs:
           if-no-files-found: error
 
   build_for_macos:
+    if: github.repository == 'xo/usql'
     name: Build for macOS
     runs-on: macos-latest
     strategy:
@@ -123,6 +125,7 @@ jobs:
           if-no-files-found: error
 
   build_for_windows:
+    if: github.repository == 'xo/usql'
     name: Build for Windows
     runs-on: windows-latest
     steps:

@@ -1,3 +1,5 @@
+//go:build !managed
+
 package main
 
 import (

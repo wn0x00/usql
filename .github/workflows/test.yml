@@ -2,6 +2,7 @@ on: [push, pull_request]
 name: Test usql
 jobs:
   test:
+    if: github.repository == 'xo/usql'
     name: Build and Test usql
     runs-on: ubuntu-latest
     services:
