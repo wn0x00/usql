@@ -96,7 +96,7 @@ func TestParameterShapeAllowsOptionalName(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"version":          1,
-				"connectionString": "moderncsqlite://:memory:",
+				"connectionString": "moderncsqlite::memory:",
 				"request": map[string]any{
 					"version": 1, "operation": "query", "alias": "parameter-shape",
 					"sql": "SELECT ?", "parameters": []any{test.parameter},

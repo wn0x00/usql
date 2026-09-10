@@ -13,9 +13,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/xo/dburl"
 	"github.com/xo/usql/drivers/ipass/transport"
 	_ "github.com/xo/usql/internal"
 )
+
+// The opaque URL keeps :memory: out of the authority parser, whose handling
+// differs between Go versions. Its DSN must stay SQLite's in-memory sentinel.
+const sqliteMemoryConnectionString = "moderncsqlite::memory:"
+
+func TestModerncSQLiteMemoryConnectionString(t *testing.T) {
+	parsed, err := dburl.Parse(sqliteMemoryConnectionString)
+	if err != nil {
+		t.Fatalf("parse in-memory SQLite connection: %v", err)
+	}
+	if parsed.Driver != "moderncsqlite" || parsed.DSN != ":memory:" || parsed.Host != "" {
+		t.Fatalf("unexpected in-memory SQLite connection: driver=%q dsn=%q host=%q", parsed.Driver, parsed.DSN, parsed.Host)
+	}
+}
 
 func TestModerncSQLiteEndToEnd(t *testing.T) {
 	opener, err := NewDBURLOpener([]string{"moderncsqlite"})
@@ -33,7 +48,7 @@ func TestModerncSQLiteEndToEnd(t *testing.T) {
 
 	ping := executeSQLiteRequest(t, handler, map[string]any{
 		"version":          1,
-		"connectionString": "moderncsqlite://:memory:",
+		"connectionString": sqliteMemoryConnectionString,
 		"request": map[string]any{
 			"version": 1, "operation": "ping", "alias": "sqlite-e2e",
 		},
@@ -44,7 +59,7 @@ func TestModerncSQLiteEndToEnd(t *testing.T) {
 
 	exec := executeSQLiteRequest(t, handler, map[string]any{
 		"version":          1,
-		"connectionString": "moderncsqlite://:memory:",
+		"connectionString": sqliteMemoryConnectionString,
 		"request": map[string]any{
 			"version": 1, "operation": "exec", "alias": "sqlite-e2e",
 			"sql":        "CREATE TABLE sample (id INTEGER PRIMARY KEY, label TEXT)",
@@ -58,7 +73,7 @@ func TestModerncSQLiteEndToEnd(t *testing.T) {
 
 	query := executeSQLiteRequest(t, handler, map[string]any{
 		"version":          1,
-		"connectionString": "moderncsqlite://:memory:",
+		"connectionString": sqliteMemoryConnectionString,
 		"request": map[string]any{
 			"version": 1, "operation": "query", "alias": "sqlite-e2e",
 			"sql": "SELECT CAST(? AS INTEGER) AS id, ? AS label, ? AS payload",
@@ -90,7 +105,7 @@ func TestModerncSQLiteEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected bytes cell: %#v", third)
 	}
 
-	for _, forbidden := range []string{"moderncsqlite://:memory:", "CREATE TABLE sample", "SELECT CAST"} {
+	for _, forbidden := range []string{sqliteMemoryConnectionString, "CREATE TABLE sample", "SELECT CAST"} {
 		if bytes.Contains(logs.Bytes(), []byte(forbidden)) {
 			t.Fatalf("gateway logs exposed %q", forbidden)
 		}
@@ -123,7 +138,7 @@ func TestTransportToModerncSQLiteParameterCompatibility(t *testing.T) {
 		// fields exactly so optional-field mismatches reach the real gateway.
 		body, err := json.Marshal(map[string]any{
 			"version":          1,
-			"connectionString": "moderncsqlite://:memory:",
+			"connectionString": sqliteMemoryConnectionString,
 			"request":          inner,
 		})
 		if err != nil {

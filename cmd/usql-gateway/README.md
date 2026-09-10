@@ -60,7 +60,7 @@ Example request (the connection string is shown only for local development):
 ```powershell
 $body = @{
     version = 1
-    connectionString = "moderncsqlite://:memory:"
+    connectionString = "moderncsqlite::memory:"
     request = @{
         version = 1
         operation = "query"
